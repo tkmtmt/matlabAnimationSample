@@ -1,0 +1,138 @@
+clear; clc; close all;
+
+% 光源の位置
+lightPos = [2, 2, 5];
+
+% 地面の離散データ（曲面）
+[X, Y] = meshgrid(-4:0.5:4, -4:0.5:4);
+Z =
+% Z = 0.5 * sin(X) .* cos(Y); % 曲面地形
+
+% 球の定義
+sphereCenter = [0, 0, 3]; % 球の中心
+sphereRadius = 1; % 球の半径
+[XS, YS, ZS] = sphere(50); % 球の座標
+XS = sphereRadius * XS + sphereCenter(1);
+YS = sphereRadius * YS + sphereCenter(2);
+ZS = sphereRadius * ZS + sphereCenter(3);
+
+% 差分法で法線を計算
+[nx, ny, nz] = calculateSurfaceNormals(X, Y, Z);
+
+% プロット設定
+figure;
+hold on; grid on; axis equal;
+xlabel('X'); ylabel('Y'); zlabel('Z');
+view(3);
+
+% 地面を描画
+surf(X, Y, Z, 'FaceAlpha', 0.7, 'EdgeColor', 'none', 'FaceColor', [0.8, 0.8, 0.8]);
+
+% 球を描画
+surf(XS, YS, ZS, 'EdgeColor', 'none', 'FaceColor', 'blue', 'FaceAlpha', 0.8);
+
+% 光源を描画
+plot3(lightPos(1), lightPos(2), lightPos(3), 'yo', 'MarkerSize', 10, 'MarkerFaceColor', 'yellow', 'DisplayName', '光源');
+
+% 球の影を計算して投影
+shadowPoints = calculateShadow(lightPos, XS, YS, ZS, X, Y, Z, nx, ny, nz);
+
+% 影を描画
+surf(shadowPoints(:, :, 1), shadowPoints(:, :, 2), shadowPoints(:, :, 3), ...
+    'EdgeColor', 'none', 'FaceColor', [0, 0, 0], 'FaceAlpha', 0.5, 'DisplayName', '影');
+
+legend show;
+
+%% 関数: 差分で法線を計算
+function [nx, ny, nz] = calculateSurfaceNormals(X, Y, Z)
+    % 差分で法線を計算
+    [rows, cols] = size(Z);
+    nx = zeros(rows, cols);
+    ny = zeros(rows, cols);
+    nz = ones(rows, cols); % z成分は1
+
+    % 差分計算
+    for i = 1:rows-1
+        for j = 1:cols-1
+            % x方向の差分
+            dx = X(i+1, j) - X(i, j);
+            dz_dx = (Z(i+1, j) - Z(i, j)) / dx;
+
+            % y方向の差分
+            dy = Y(i, j+1) - Y(i, j);
+            dz_dy = (Z(i, j+1) - Z(i, j)) / dy;
+
+            % 法線ベクトル
+            n = [-dz_dx, -dz_dy, 1];
+            n = n / norm(n); % 正規化
+
+            % 結果を格納
+            nx(i, j) = n(1);
+            ny(i, j) = n(2);
+            nz(i, j) = n(3);
+        end
+    end
+
+    % 最後の行列要素の外れ値を処理
+    nx(end, :) = nx(end-1, :);
+    ny(end, :) = ny(end-1, :);
+    nz(end, :) = nz(end-1, :);
+    nx(:, end) = nx(:, end-1);
+    ny(:, end) = ny(:, end-1);
+    nz(:, end) = nz(:, end-1);
+end
+
+%% 関数: 影を計算
+function shadow = calculateShadow(lightPos, XS, YS, ZS, X, Y, Z, nx, ny, nz)
+    % 光源から各点への影を計算
+    [rows, cols] = size(XS);
+    shadow = zeros(rows, cols, 3);
+
+    for i = 1:rows
+        for j = 1:cols
+            % 現在の球の頂点
+            P = [XS(i, j), YS(i, j), ZS(i, j)];
+
+            % 光源から頂点へのベクトル
+            v = P - lightPos;
+
+            % 法線を使用して地面との交点を計算
+            t = findIntersection(lightPos, v, X, Y, Z, nx, ny, nz);
+            shadowPoint = lightPos + t * v;
+
+            % 影の位置を格納
+            shadow(i, j, :) = shadowPoint;
+        end
+    end
+end
+
+%% 関数: 地面との交点を計算
+function t = findIntersection(L, v, X, Y, Z, nx, ny, nz)
+    % 初期値
+    t = 1;
+    tol = 1e-5;
+    maxIter = 50;
+
+    for iter = 1:maxIter
+        % 現在の影の位置
+        x = L(1) + t * v(1);
+        y = L(2) + t * v(2);
+        z = L(3) + t * v(3);
+
+        % 最近傍の地面の法線を取得
+        [~, idx] = min(sqrt((X(:) - x).^2 + (Y(:) - y).^2));
+        n = [nx(idx), ny(idx), nz(idx)];
+
+        % 地面の高さ
+        z_ground = Z(idx);
+
+        % tを更新
+        delta = (z - z_ground) / dot(n, v);
+        t = t - delta;
+
+        % 収束判定
+        if abs(delta) < tol
+            break;
+        end
+    end
+end

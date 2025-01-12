@@ -1,0 +1,178 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% 設定
+\geometry{top=25mm,bottom=25mm,left=20mm,right=20mm}
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{lightgray!20},
+    frame=single,
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    tabsize=4,
+    showstringspaces=false
+}
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{lightgray!20},
+    frame=single,
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    tabsize=4,
+    showstringspaces=false,
+    morekeywords={end} % "end" を特別扱いしない
+}
+
+\title{3次元リンクモデルと影の投影 - プログラム解説}
+\author{作者名}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{概要}
+このプログラムは、MATLABを使用して3次元リンク構造（例: ロボットアーム）をモデル化し、光源による影の投影を計算して可視化します。リンクの動きをアニメーションで表現し、それに伴う影の変化もリアルタイムで描画します。
+
+---
+
+\section*{必要な知識}
+プログラムを理解し拡張するために必要な数学的およびプログラム的知識を以下にまとめます。
+
+\subsection*{1. 3次元座標変換}
+3次元空間で物体を移動・回転させるには、以下の座標変換を行います：
+\begin{itemize}
+    \item \textbf{平行移動（Translation）}:
+    \[
+    T = \begin{bmatrix}
+    1 & 0 & 0 & t_x \\
+    0 & 1 & 0 & t_y \\
+    0 & 0 & 1 & t_z \\
+    0 & 0 & 0 & 1
+    \end{bmatrix}
+    \]
+    MATLABでは、\texttt{makehgtform('translate', [tx, ty, tz])} で生成します。
+
+    \item \textbf{回転（Rotation）}:
+    各軸に対する回転行列を用います。例として、z軸周りの回転行列は以下のように定義されます：
+    \[
+    R_z = \begin{bmatrix}
+    \cos\theta & -\sin\theta & 0 & 0 \\
+    \sin\theta & \cos\theta & 0 & 0 \\
+    0 & 0 & 1 & 0 \\
+    0 & 0 & 0 & 1
+    \end{bmatrix}
+    \]
+    MATLABでは、\texttt{makehgtform('zrotate', angle)} で生成します。
+
+    \item \textbf{合成変換}:
+    平行移動と回転を組み合わせた行列の積で、複合的な変換を行います。
+\end{itemize}
+
+---
+
+\subsection*{2. 影の投影}
+影の計算は以下のステップで行います：
+\begin{enumerate}
+    \item \textbf{光源と頂点の関係}:
+    光源位置を \((L_x, L_y, L_z)\)、頂点の位置を \((P_x, P_y, P_z)\) とします。
+    \item \textbf{地面との交点計算}:
+    地面の高さ \(Z_{\text{ground}}\) での影の位置 \((S_x, S_y, S_z)\) は次のように求めます：
+    \[
+    t = \frac{Z_{\text{ground}} - P_z}{L_z - P_z}
+    \]
+    \[
+    S_x = P_x + t \cdot (L_x - P_x), \quad S_y = P_y + t \cdot (L_y - P_y), \quad S_z = Z_{\text{ground}}
+    \]
+\end{enumerate}
+
+---
+
+\subsection*{3. MATLAB グラフィックシステム}
+\begin{itemize}
+    \item \textbf{hgtransform}:
+    階層的な座標変換を実現するためのオブジェクト。親子関係を持つリンク構造を簡単に実現できます。
+    \item \textbf{アニメーション}:
+    \texttt{set} 関数でオブジェクトのプロパティを更新することで、リアルタイムな動作を表現します。
+\end{itemize}
+
+---
+
+\section*{プログラム構成}
+以下はプログラムの主要な部分です。
+
+\subsection*{1. 初期設定}
+\begin{lstlisting}[language=Matlab]
+figure;
+ax = gca;
+grid on;
+hold on;
+view(3);
+axis equal;
+xlabel('X');
+ylabel('Y');
+zlabel('Z');
+ax.XLim = [-4, 4];
+ax.YLim = [-4, 4];
+ax.ZLim = [-0.1, 4];
+\end{lstlisting}
+
+\subsection*{2. 影の計算関数}
+\begin{lstlisting}[language=Matlab]
+function h = projectShadow(X, Y, Z, lightPos, shadowColor, alphaVal, hgTransformObj)
+    transformMatrix = hgtransformChainMatrix(hgTransformObj);
+    points = [X(:), Y(:), Z(:), ones(numel(X), 1)]';
+    transformedPoints = transformMatrix * points;
+    X = reshape(transformedPoints(1, :), size(X));
+    Y = reshape(transformedPoints(2, :), size(Y));
+    Z = reshape(transformedPoints(3, :), size(Z));
+    shadowX = X + (lightPos(1) - X) .* ((-0.1 - Z) ./ (lightPos(3) - Z));
+    shadowY = Y + (lightPos(2) - Y) .* ((-0.1 - Z) ./ (lightPos(3) - Z));
+    shadowZ = -0.1 * ones(size(Z));
+    h = surf(shadowX, shadowY, shadowZ, 'FaceColor', shadowColor, 'EdgeColor', 'none', 'FaceAlpha', alphaVal);
+end
+\end{lstlisting}
+
+\subsection*{3. アニメーションの設定}
+\begin{lstlisting}[language=Matlab]
+for k = 1:frames
+    R_yaw = makehgtform('zrotate', yawAngles(k));
+    set(link1, 'Matrix', T1 * R1 * R_yaw);
+    updateShadow(shadowHandles(1), X1, Y1, Z1, lightPos, link1);
+    pause(0.05);
+end
+\end{lstlisting}
+
+
+\section*{応用例}
+このプログラムは以下のような用途に応用可能です：
+\begin{itemize}
+    \item ロボットアームの動作シミュレーション。
+    \item 教育用途での座標変換と影の計算の学習。
+    \item 照明シミュレーション。
+\end{itemize}
+
+---
+
+\section*{注意事項}
+\begin{itemize}
+    \item MATLAB 環境が必要です。
+    \item リンクの動きや光源の位置によって影が意図した通りに表示されない場合は、行列の計算や光源位置を確認してください。
+\end{itemize}
+
+---
+
+\end{document}
